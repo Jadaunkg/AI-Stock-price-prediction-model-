@@ -3,7 +3,7 @@ import numpy as np  # Added missing import
 import pandas_datareader as pdr
 from datetime import datetime
 
-FRED_API_KEY = '449b593bb9ac53b9b39da77a80a415e9'
+FRED_API_KEY = 'your fred api key'
 
 def fetch_macro_indicators(start_date=None, end_date=None):
     """
