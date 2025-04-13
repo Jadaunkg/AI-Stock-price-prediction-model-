@@ -3,54 +3,75 @@ import plotly.graph_objects as go
 from plotly.offline import plot
 import pandas as pd
 import os
-import time
 
-def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data):
-    # Define a clear color palette
+def create_full_report(ticker, actual_data, forecast_data, historical_data, ts, aggregation=None):
+    """
+    Create a full HTML report with interactive charts and tables.
+    
+    Parameters:
+      ticker (str): The stock ticker.
+      actual_data (pd.DataFrame): Aggregated historical actuals. Must contain either a 'YearMonth' or 'Period' column.
+      forecast_data (pd.DataFrame): Aggregated forecast data. Must contain either a 'YearMonth' or 'Period' column.
+      historical_data (pd.DataFrame): The raw historical price data.
+      ts: Timestamp used for the report filename.
+      aggregation (str, optional): Additional info regarding aggregation (unused in logic, but available if needed).
+    """
+    # Determine which time column to use for the aggregated forecast and actual data.
+    if 'YearMonth' in forecast_data.columns:
+        forecast_time_col = 'YearMonth'
+    elif 'Period' in forecast_data.columns:
+        forecast_time_col = 'Period'
+    else:
+        raise ValueError("Forecast data must have a 'YearMonth' or 'Period' column.")
+        
+    if 'YearMonth' in actual_data.columns:
+        actual_time_col = 'YearMonth'
+    elif 'Period' in actual_data.columns:
+        actual_time_col = 'Period'
+    else:
+        raise ValueError("Actual data must have a 'YearMonth' or 'Period' column.")    
+    
+    # Use a period label: commonly "Month" for 'YearMonth' or "Period" if custom.
+    period_label = "Month" if forecast_time_col == "YearMonth" else "Period"
+    
     colors = {
-        'actual': '#1f77b4',      # blue for actual price
-        'Low': '#d62728',         # red for low forecast
-        'Average': '#2ca02c',     # green for average forecast
-        'High': '#9467bd'         # purple for high forecast
+        'actual': '#1f77b4',
+        'Low': '#d62728',
+        'Average': '#2ca02c',
+        'High': '#9467bd'
     }
     
-    # -------------------------------
-    # Build Forecast Chart (monthly data)
-    # -------------------------------
+    # ---- Forecast Chart ----
     forecast_chart_fig = go.Figure()
-
-    # Plot the actual price line (monthly)
     forecast_chart_fig.add_trace(go.Scatter(
-        x=actual_monthly['YearMonth'],
-        y=actual_monthly['Average'],
+        x=actual_data[actual_time_col],
+        y=actual_data['Average'],
         mode='lines+markers',
         name='Actual Price',
         line=dict(color=colors['actual'], width=2.5),
         marker=dict(size=8),
-        hovertemplate="<b>Month</b>: %{x}<br><b>Price</b>: %{y:.2f}<extra></extra>"
+        hovertemplate="<b>%{x}</b><br><b>Price</b>: %{y:.2f}<extra></extra>"
     ))
     
-    base_price = actual_monthly['Average'].iloc[-1]
-    # Plot forecast lines (Low, Average, High)
+    base_price = actual_data['Average'].iloc[-1]
     for col in ['Low', 'Average', 'High']:
         forecast_chart_fig.add_trace(go.Scatter(
-            x=forecast_monthly['YearMonth'],
-            y=forecast_monthly[col],
+            x=forecast_data[forecast_time_col],
+            y=forecast_data[col],
             mode='lines+markers',
             name='Forecast ' + col,
             line=dict(color=colors[col], width=2.5),
             marker=dict(size=8, line=dict(width=1, color='#ffffff')),
-            hovertemplate="<b>Month</b>: %{x}<br><b>" + col + "</b>: %{y:.2f}<extra></extra>"
+            hovertemplate="<b>%{x}</b><br><b>" + col + "</b>: %{y:.2f}<extra></extra>"
         ))
-        # Add an annotation at the end of each forecast line
-        final_value = forecast_monthly[col].iloc[-1]
+        final_value = forecast_data[col].iloc[-1]
         pct_change = ((final_value - base_price) / base_price) * 100
         annotation_text = (
             "<b>{:.2f}</b><br><span style='color:{};'>{:+.1f}%</span>"
             .format(final_value, colors[col], pct_change)
         )
         forecast_chart_fig.add_annotation(
-            x=forecast_monthly['YearMonth'].iloc[-1],
+            x=forecast_data[forecast_time_col].iloc[-1],
             y=final_value,
             text=annotation_text,
             showarrow=True,
@@ -64,17 +85,15 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         )
     forecast_chart_fig.update_layout(
         title=ticker + " Price Forecast",
-        xaxis_title="Month",
+        xaxis_title=period_label,
         yaxis_title="Price",
         template="plotly_white"
     )
     
-    # -------------------------------
-    # Build Forecast Table
-    # -------------------------------
+    # ---- Forecast Table ----
     forecast_table_fig = go.Figure(data=[go.Table(
         header=dict(
-            values=["<b>Month</b>", "<b>Low</b>", "<b>Average</b>", "<b>High</b>"],
+            values=[f"<b>{period_label}</b>", "<b>Low</b>", "<b>Average</b>", "<b>High</b>"],
             fill_color=colors['High'],
             align='center',
             font=dict(color='white', size=12),
@@ -82,10 +101,10 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         ),
         cells=dict(
             values=[
-                forecast_monthly['YearMonth'],
-                forecast_monthly['Low'].round(2),
-                forecast_monthly['Average'].round(2),
-                forecast_monthly['High'].round(2)
+                forecast_data[forecast_time_col],
+                forecast_data['Low'].round(2),
+                forecast_data['Average'].round(2),
+                forecast_data['High'].round(2)
             ],
             fill_color='white',
             align='center',
@@ -95,13 +114,11 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         )
     )])
     forecast_table_fig.update_layout(
-        title=ticker + " 12-Month Forecast Details",
+        title=ticker + " Forecast Details",
         template="plotly_white"
     )
     
-    # -------------------------------
-    # Build Historical Chart (daily data with range selectors)
-    # -------------------------------
+    # ---- Historical Chart ----
     historical_chart_fig = go.Figure()
     historical_chart_fig.add_trace(go.Scatter(
         x=historical_data['Date'],
@@ -130,9 +147,7 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         template="plotly_white"
     )
     
-    # -------------------------------
-    # Build Historical Table (monthly aggregates)
-    # -------------------------------
+    # ---- Historical Table (Monthly Aggregation) ----
     historical_monthly = historical_data.resample('M', on='Date').agg({
         'Close': ['min', 'max', 'mean']
     }).reset_index()
@@ -165,19 +180,12 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         template="plotly_white"
     )
     
-    # -------------------------------
-    # Generate HTML snippets (for each figure)
-    # -------------------------------
-    # Only include Plotly JS once.
+    # ---- Generate HTML Components ----
     forecast_chart_html = plot(forecast_chart_fig, output_type='div', include_plotlyjs='cdn')
     forecast_table_html = plot(forecast_table_fig, output_type='div', include_plotlyjs=False)
     historical_chart_html = plot(historical_chart_fig, output_type='div', include_plotlyjs=False)
     historical_table_html = plot(historical_table_fig, output_type='div', include_plotlyjs=False)
     
-    # -------------------------------
-    # Build the final HTML which can be embedded via an iframe.
-    # The embed snippet (iframe) is placed at the bottom as a comment for convenience.
-    # -------------------------------
     custom_style = """
     <style>
       body { margin: 0; padding: 0; }
@@ -203,7 +211,6 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
     </style>
     """
     
-    # Assemble the final HTML
     full_html = f"""<!DOCTYPE html>
 <html>
 <head>
@@ -226,17 +233,12 @@ def create_full_report(ticker, actual_monthly, forecast_monthly, historical_data
         <div class="section">
             {historical_table_html}
         </div>
-        <!--
-        Use the following iframe code to embed this report in your WordPress post:
-        <iframe src="YOUR_DOMAIN/{ticker}_professional_report_{int(time.time())}.html" style="width: 100%; height: 1000px;" loading="lazy" title="{ticker} Stock Analysis Report" frameborder="0"></iframe>
-        -->
     </div>
 </body>
 </html>
 """
     
-    # Save the report HTML in the "static" folder
-    report_filename = f"{ticker}_professional_report_{int(time.time())}.html"
+    report_filename = f"{ticker}_professional_report_{ts}.html"
     report_path = os.path.join('static', report_filename)
     with open(report_path, 'w', encoding='utf-8') as f:
         f.write(full_html)
